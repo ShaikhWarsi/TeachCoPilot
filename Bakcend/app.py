@@ -6,6 +6,7 @@ import os
 import io
 import time
 import re
+import uuid
 import pandas as pd
 from hashlib import md5
 from dotenv import load_dotenv
@@ -231,6 +232,115 @@ def save_to_file(name, class_section, roll_no, score):
     df = pd.read_csv(REPORT_FILE)
     df = pd.concat([df, pd.DataFrame([{"Name": name, "Class & Section": class_section, "Roll No": roll_no, "Score": score}])], ignore_index=True)
     df.to_csv(REPORT_FILE, index=False)
+
+
+def parse_google_forms_csv(csv_path):
+    """
+    Parse Google Forms CSV export and extract student responses.
+    Returns list of dictionaries with student info and answers.
+    """
+    df = pd.read_csv(csv_path)
+    
+    # Google Forms columns: Timestamp, Email, Name, and question columns
+    students = []
+    
+    for idx, row in df.iterrows():
+        # Extract student name (commonly in "Name" column or extract from email)
+        name = row.get('Name', '') or row.get('Full Name', '')
+        email = row.get('Email Address', '') or row.get('Username', '')
+        
+        # If no name column, try to extract from email
+        if not name and email:
+            name = email.split('@')[0].replace('.', ' ').title()
+        
+        if not name:
+            name = f"Student_{idx + 1}"
+        
+        # Collect all responses (skip Timestamp, Email, Name columns)
+        skip_cols = ['Timestamp', 'Email Address', 'Username', 'Name', 'Full Name']
+        responses = {}
+        for col in df.columns:
+            if col not in skip_cols and pd.notna(row[col]):
+                responses[col] = str(row[col])
+        
+        students.append({
+            'name': name,
+            'email': email,
+            'class_section': 'Google Forms Import',
+            'roll_no': str(idx + 1),
+            'responses': responses
+        })
+    
+    return students
+
+
+@app.route("/import-google-forms", methods=["POST"])
+@login_required
+def import_google_forms():
+    """
+    Import student responses from Google Forms CSV export.
+    The CSV should be downloaded from Google Forms -> Responses -> View in Sheets -> Download as CSV.
+    """
+    if 'csv_file' not in request.files:
+        flash("No file provided!", "danger")
+        return redirect(url_for("dashboard"))
+    
+    csv_file = request.files['csv_file']
+    
+    if csv_file.filename == '':
+        flash("No file selected!", "danger")
+        return redirect(url_for("dashboard"))
+    
+    # Validate CSV extension
+    if not csv_file.filename.endswith('.csv'):
+        flash("Please upload a CSV file!", "danger")
+        return redirect(url_for("dashboard"))
+    
+    try:
+        # Save the CSV temporarily
+        filename = f"google_forms_{uuid.uuid4().hex}.csv"
+        save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        csv_file.save(save_path)
+        
+        # Parse the CSV
+        students = parse_google_forms_csv(save_path)
+        
+        if not students:
+            flash("No valid student responses found in the CSV!", "danger")
+            os.remove(save_path)
+            return redirect(url_for("dashboard"))
+        
+        # Get total marks from form
+        total_marks = request.form.get('total_marks', '100')
+        
+        # Process each student (store responses as scores/evaluations)
+        imported_count = 0
+        for student in students:
+            # Combine all responses into a formatted string for evaluation
+            response_text = "\n".join([f"Q: {q}\nA: {a}" for q, a in student['responses'].items()])
+            
+            # For now, store as "Pending Evaluation" with the response content
+            # In a full implementation, you could pass this to an AI evaluator
+            score_display = f"Imported from Google Forms ({len(student['responses'])} responses)"
+            
+            save_to_file(
+                name=student['name'],
+                class_section=student['class_section'],
+                roll_no=student['roll_no'],
+                score=score_display
+            )
+            imported_count += 1
+        
+        # Clean up temp file
+        os.remove(save_path)
+        
+        flash(f"✅ Successfully imported {imported_count} student responses from Google Forms!", "success")
+        
+    except Exception as e:
+        flash(f"❌ Error importing Google Forms CSV: {str(e)}", "danger")
+    
+    return redirect(url_for("dashboard"))
+
 
 if __name__ == "__main__":
     init_db()

@@ -4,6 +4,8 @@ Classroom Routes - API endpoints for classroom workflow
 
 import os
 import uuid
+import pandas as pd
+import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
@@ -13,6 +15,9 @@ from ocr import extract_text, OCRExtractor
 from llm import evaluate_assignment, AssignmentEvaluator
 from analytics_engine import generate_classroom_analytics
 from auth import auth_store, login_required, get_current_user
+
+# External evaluation API
+EVAL_API_URL = "https://rachit-tw-teco.hf.space/evaluate"
 
 classroom_bp = Blueprint('classroom', __name__)
 
@@ -411,3 +416,229 @@ def regenerate_analytics(classroom_id):
         'data': analytics,
         'message': 'Analytics regenerated successfully'
     })
+
+
+# ==================== GOOGLE FORMS IMPORT ====================
+
+def parse_google_forms_csv(csv_path):
+    """
+    Parse Google Forms CSV export and extract student responses.
+    Returns list of dictionaries with student info and answers.
+    """
+    df = pd.read_csv(csv_path)
+    students = []
+    
+    for idx, row in df.iterrows():
+        # Extract student name from various possible columns
+        name = row.get('Name', '') or row.get('Full Name', '') or row.get('Student Name', '')
+        email = row.get('Email Address', '') or row.get('Username', '')
+        
+        # If no name column, try to extract from email
+        if not name and email:
+            name = email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+        
+        if not name:
+            name = f"Student_{idx + 1}"
+        
+        # Collect all responses (skip metadata columns)
+        skip_cols = ['Timestamp', 'Email Address', 'Username', 'Name', 'Full Name', 
+                     'Student Name', 'Email', 'Score', 'Total Score']
+        responses = {}
+        for col in df.columns:
+            if col not in skip_cols and pd.notna(row[col]):
+                responses[col] = str(row[col])
+        
+        students.append({
+            'name': name,
+            'email': email,
+            'roll_no': str(idx + 1),
+            'responses': responses
+        })
+    
+    return students
+
+
+def evaluate_with_api(question, answer, max_score=100):
+    """
+    Evaluate a single question-answer pair using the external API.
+    """
+    try:
+        payload = {
+            "question": question,
+            "answer": answer,
+            "max_score": max_score
+        }
+        response = requests.post(EVAL_API_URL, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'score': data.get('score', 0),
+                'feedback': data.get('feedback', 'Evaluated successfully'),
+                'mistakes': data.get('mistakes', []),
+                'suggestions': data.get('suggestions', [])
+            }
+        else:
+            return {
+                'score': 0,
+                'feedback': f'API Error: {response.status_code}',
+                'mistakes': ['Could not evaluate - API error'],
+                'suggestions': ['Try again later']
+            }
+    except Exception as e:
+        return {
+            'score': 0,
+            'feedback': f'Evaluation failed: {str(e)}',
+            'mistakes': ['Connection error'],
+            'suggestions': ['Check internet connection']
+        }
+
+
+@classroom_bp.route('/classrooms/<classroom_id>/import-google-forms', methods=['POST'])
+@login_required
+def import_google_forms_classroom(classroom_id):
+    """
+    Import student responses from Google Forms CSV into a classroom.
+    Evaluates each response using the external API.
+    
+    POST /classrooms/{id}/import-google-forms
+    Content-Type: multipart/form-data
+    
+    Form Fields:
+        - csv_file: Google Forms responses CSV (required)
+        - max_score_per_question: (optional) Max score per question, default 10
+    """
+    try:
+        user = get_current_user()
+        classroom = store.get_classroom(classroom_id, user_id=user['id'])
+        
+        if not classroom:
+            return jsonify({
+                'success': False,
+                'error': 'Classroom not found'
+            }), 404
+        
+        # Check if file is present
+        if 'csv_file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided',
+                'message': 'Please upload a CSV file from Google Forms'
+            }), 400
+        
+        csv_file = request.files['csv_file']
+        
+        if csv_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected',
+                'message': 'Please select a CSV file'
+            }), 400
+        
+        if not csv_file.filename.endswith('.csv'):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type',
+                'message': 'Please upload a CSV file (.csv)'
+            }), 400
+        
+        # Save CSV temporarily
+        filename = f"google_forms_{uuid.uuid4().hex}.csv"
+        upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        file_path = os.path.join(upload_folder, filename)
+        csv_file.save(file_path)
+        
+        try:
+            # Parse the CSV
+            students = parse_google_forms_csv(file_path)
+            
+            if not students:
+                return jsonify({
+                    'success': False,
+                    'error': 'No valid student responses found',
+                    'message': 'The CSV appears to be empty or invalid'
+                }), 400
+            
+            max_score = request.form.get('max_score_per_question', 10, type=int)
+            
+            # Process each student
+            results = []
+            failed_students = []
+            
+            for student in students:
+                try:
+                    # Evaluate each question-answer pair
+                    total_score = 0
+                    all_feedback = []
+                    all_mistakes = []
+                    all_suggestions = []
+                    
+                    for question, answer in student['responses'].items():
+                        evaluation = evaluate_with_api(question, answer, max_score)
+                        total_score += evaluation['score']
+                        all_feedback.append(f"Q: {question}\n{evaluation['feedback']}")
+                        all_mistakes.extend(evaluation['mistakes'])
+                        all_suggestions.extend(evaluation['suggestions'])
+                    
+                    # Create submission
+                    submission = Submission(
+                        id=str(uuid.uuid4()),
+                        student_name=student['name'],
+                        file_name=f"Google Forms - {student['name']}",
+                        score=total_score,
+                        feedback="\n\n".join(all_feedback),
+                        mistakes=list(set(all_mistakes)),
+                        suggestions=list(set(all_suggestions)),
+                        date_submitted=datetime.now().isoformat()
+                    )
+                    
+                    store.add_submission(classroom_id, submission)
+                    
+                    results.append({
+                        'submission_id': submission.id,
+                        'student_name': student['name'],
+                        'score': total_score,
+                        'questions_answered': len(student['responses']),
+                        'status': 'success'
+                    })
+                    
+                except Exception as e:
+                    print(f"Error processing student {student['name']}: {e}")
+                    failed_students.append({
+                        'student_name': student['name'],
+                        'error': str(e)
+                    })
+            
+            # Generate analytics
+            analytics = generate_classroom_analytics(classroom_id)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'processed': len(results),
+                    'failed': len(failed_students),
+                    'results': results,
+                    'failed_students': failed_students,
+                    'analytics': {
+                        'overview': analytics['overview'],
+                        'score_distribution': analytics['score_distribution'],
+                        'pass_fail_ratio': analytics['pass_fail_ratio'],
+                        'common_mistakes': analytics['common_mistakes'][:5]
+                    }
+                },
+                'message': f'Successfully imported and evaluated {len(results)} students from Google Forms'
+            })
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+    except Exception as e:
+        print(f"Google Forms import error: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Server error',
+            'message': f'An error occurred during import: {str(e)}'
+        }), 500

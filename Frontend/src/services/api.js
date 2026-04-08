@@ -108,6 +108,16 @@ export const classroomAPI = {
         });
     },
     
+    importGoogleForms: (id, csvFile, maxScorePerQuestion = 10) => {
+        const formData = new FormData();
+        formData.append('csv_file', csvFile);
+        formData.append('max_score_per_question', maxScorePerQuestion);
+        return apiCall(`/classrooms/${id}/import-google-forms`, {
+            method: 'POST',
+            body: formData
+        });
+    },
+    
     getSubmissions: (id) => 
         apiCall(`/classrooms/${id}/submissions`),
     
@@ -137,6 +147,16 @@ export const evaluationAPI = {
         files.forEach(file => formData.append('files', file));
         formData.append('assignment_name', assignmentName);
         return apiCall('/batch-evaluate', {
+            method: 'POST',
+            body: formData
+        });
+    },
+    
+    importGoogleForms: (csvFile, totalMarks) => {
+        const formData = new FormData();
+        formData.append('csv_file', csvFile);
+        formData.append('total_marks', totalMarks);
+        return apiCall('/import-google-forms', {
             method: 'POST',
             body: formData
         });

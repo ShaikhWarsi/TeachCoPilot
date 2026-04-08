@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Eye, EyeOff, ArrowRight, Mail, Lock, Loader2 } from 'lucide-react';
+import { Brain, Eye, EyeOff, ArrowRight, Mail, Lock, Loader2, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Card from '../components/Card';
 import { authAPI, storage } from '../services/api';
@@ -25,34 +25,6 @@ const Login = () => {
         setIsLoading(true);
         setError('');
 
-<<<<<<< HEAD
-        // DEMO MODE: Skip API call, auto-login as demo teacher
-        setTimeout(() => {
-            // Store demo auth data
-            storage.setAuth('demo_token', {
-                id: 'teacher_001',
-                email: formData.email || 'demo@teacher.com',
-                name: 'Demo Teacher'
-            });
-            setIsLoading(false);
-            navigate('/dashboard');
-        }, 1000);
-        
-        // PRODUCTION: Uncomment below and remove setTimeout above
-        // try {
-        //     const response = await authAPI.login(formData.email, formData.password);
-        //     if (response.success) {
-        //         storage.setAuth(response.data.token, response.data.user);
-        //         navigate('/dashboard');
-        //     } else {
-        //         setError(response.message || 'Login failed');
-        //     }
-        // } catch (err) {
-        //     setError('Network error. Please try again.');
-        // } finally {
-        //     setIsLoading(false);
-        // }
-=======
         try {
             const response = await authAPI.login(formData.email, formData.password);
             
@@ -68,7 +40,23 @@ const Login = () => {
         } finally {
             setIsLoading(false);
         }
->>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
+    };
+
+    const handleDemoLogin = () => {
+        setIsLoading(true);
+        setError('');
+        
+        // Simulate loading for better UX
+        setTimeout(() => {
+            // Store demo auth data
+            storage.setAuth('demo_token_' + Date.now(), {
+                id: 'demo_teacher_' + Date.now(),
+                email: 'demo@teachercopilot.com',
+                name: 'Demo Teacher'
+            });
+            setIsLoading(false);
+            navigate('/dashboard');
+        }, 800);
     };
 
     return (
@@ -201,6 +189,36 @@ const Login = () => {
                             </svg>
                             Google
                         </button>
+
+                        {/* Demo Mode Button */}
+                        <div className="relative my-4">
+                            <div className="absolute inset-0 flex items-center">
+                                <div className="w-full border-t-2 border-dashed border-slate-300 dark:border-slate-600"></div>
+                            </div>
+                            <div className="relative flex justify-center">
+                                <span className="px-3 bg-white dark:bg-slate-900 text-xs text-slate-400 font-medium uppercase tracking-wide">
+                                    Quick Start
+                                </span>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleDemoLogin}
+                            disabled={isLoading}
+                            className="w-full py-3 bg-gradient-to-r from-ms-violet to-ms-pink text-white font-bold rounded-xl border-2 border-slate-900 dark:border-white shadow-brutal hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-70"
+                        >
+                            {isLoading ? (
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <>
+                                    <Sparkles size={18} />
+                                    Try Demo Mode
+                                </>
+                            )}
+                        </button>
+                        <p className="text-center text-xs text-slate-500 mt-2">
+                            Skip registration - instant access with sample data
+                        </p>
 
                         {/* Sign up link */}
                         <p className="text-center mt-6 text-slate-600 dark:text-slate-400">

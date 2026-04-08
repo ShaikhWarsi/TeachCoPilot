@@ -2,20 +2,31 @@ import React, { useState, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { 
     UploadCloud, File, X, CheckCircle, AlertCircle, 
-    ChevronLeft, Loader2, Users, ArrowRight
+    ChevronLeft, Loader2, Users, ArrowRight, FileSpreadsheet, ExternalLink
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Card from '../components/Card';
+import { classroomAPI } from '../services/api';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
 const ClassroomUpload = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const [activeTab, setActiveTab] = useState('files'); // 'files' or 'google-forms'
+    
+    // File upload states
     const [files, setFiles] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
+    
+    // Google Forms states
+    const [csvFile, setCsvFile] = useState(null);
+    const [maxScore, setMaxScore] = useState(10);
+    const [importing, setImporting] = useState(false);
+    
+    // Common states
     const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
 
@@ -83,15 +94,7 @@ const ClassroomUpload = () => {
         setProgress({ current: 0, total: files.length });
         
         try {
-            const formData = new FormData();
-            files.forEach(f => formData.append('files', f.file));
-            
-            const response = await fetch(`${API_BASE_URL}/classrooms/${id}/upload`, {
-                method: 'POST',
-                body: formData,
-            });
-            
-            const result = await response.json();
+            const result = await classroomAPI.uploadBatch(id, files.map(f => f.file));
             
             if (result.success) {
                 setResults(result.data);
@@ -105,6 +108,38 @@ const ClassroomUpload = () => {
             setError(err.message || 'An error occurred during upload');
         } finally {
             setUploading(false);
+        }
+    };
+    
+    const handleGoogleFormsImport = async () => {
+        if (!csvFile) return;
+        
+        setImporting(true);
+        setError(null);
+        
+        try {
+            const result = await classroomAPI.importGoogleForms(id, csvFile, maxScore);
+            
+            if (result.success) {
+                setResults(result.data);
+            } else {
+                throw new Error(result.message || 'Import failed');
+            }
+            
+        } catch (err) {
+            console.error('Google Forms import error:', err);
+            setError(err.message || 'An error occurred during import');
+        } finally {
+            setImporting(false);
+        }
+    };
+    
+    const handleCsvFileInput = (e) => {
+        const file = e.target.files[0];
+        if (file && file.name.endsWith('.csv')) {
+            setCsvFile(file);
+        } else {
+            setError('Please select a valid CSV file');
         }
     };
 
@@ -245,11 +280,47 @@ const ClassroomUpload = () => {
                     className="text-center mb-8"
                 >
                     <h1 className="text-4xl md:text-5xl font-display font-black text-slate-900 dark:text-white mb-4">
-                        Batch <span className="text-gradient">Upload</span>
+                        Add <span className="text-gradient">Students</span>
                     </h1>
                     <p className="text-slate-600 dark:text-slate-400 text-lg">
-                        Upload multiple student assignments at once
+                        Upload assignments or import from Google Forms
                     </p>
+                </motion.div>
+                
+                {/* Tab Switcher */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center mb-8"
+                >
+                    <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-full inline-flex">
+                        <button
+                            onClick={() => { setActiveTab('files'); setError(null); }}
+                            className={`px-6 py-2 rounded-full font-bold text-sm transition-all ${
+                                activeTab === 'files'
+                                    ? 'bg-white dark:bg-slate-700 text-ms-blue shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                            }`}
+                        >
+                            <span className="flex items-center gap-2">
+                                <File size={16} />
+                                File Upload
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => { setActiveTab('google-forms'); setError(null); }}
+                            className={`px-6 py-2 rounded-full font-bold text-sm transition-all ${
+                                activeTab === 'google-forms'
+                                    ? 'bg-white dark:bg-slate-700 text-ms-blue shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                            }`}
+                        >
+                            <span className="flex items-center gap-2">
+                                <FileSpreadsheet size={16} />
+                                Google Forms
+                            </span>
+                        </button>
+                    </div>
                 </motion.div>
 
                 {/* Error Message */}
@@ -262,58 +333,187 @@ const ClassroomUpload = () => {
                         <div className="p-4 rounded-xl bg-red-100 dark:bg-red-900/30 border-2 border-red-300 dark:border-red-700 flex items-start gap-3">
                             <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                             <div>
-                                <div className="font-bold text-red-800 dark:text-red-300">Upload Failed</div>
+                                <div className="font-bold text-red-800 dark:text-red-300">{activeTab === 'google-forms' ? 'Import Failed' : 'Upload Failed'}</div>
                                 <div className="text-sm text-red-600 dark:text-red-400">{error}</div>
                             </div>
                         </div>
                     </motion.div>
                 )}
-
-                {/* Upload Area */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                >
-                    <div
-                        onDragOver={onDragOver}
-                        onDragLeave={onDragLeave}
-                        onDrop={onDrop}
-                        className={`
-                            relative border-4 border-dashed rounded-[2rem] p-12 text-center transition-all duration-300
-                            ${isDragging 
-                                ? 'border-ms-blue bg-ms-blue/5 scale-[1.02]' 
-                                : 'border-slate-300 dark:border-slate-700 hover:border-ms-blue/50'
-                            }
-                        `}
+                
+                {/* GOOGLE FORMS TAB */}
+                {activeTab === 'google-forms' && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
                     >
-                        <input
-                            type="file"
-                            multiple
-                            onChange={handleFileInput}
-                            accept=".pdf,.docx,.png,.jpg,.jpeg"
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            disabled={uploading}
-                        />
-                        
-                        <div className="relative z-10">
-                            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-ms-blue/10 flex items-center justify-center">
-                                <UploadCloud className={`w-10 h-10 text-ms-blue transition-transform ${isDragging ? 'scale-110' : ''}`} />
+                        {/* Info Card */}
+                        <Card rotate={0} className="p-6 mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
+                            <div className="flex items-start gap-4">
+                                <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-800 flex items-center justify-center flex-shrink-0">
+                                    <FileSpreadsheet className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-slate-900 dark:text-white mb-1">
+                                        Import from Google Forms
+                                    </h3>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                                        Upload a CSV export from Google Forms responses. Each question-answer pair will be evaluated using AI.
+                                    </p>
+                                    <a 
+                                        href="https://support.google.com/docs/answer/139706?hl=en" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-sm text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                                    >
+                                        How to export from Google Forms
+                                        <ExternalLink size={12} />
+                                    </a>
+                                </div>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                                {isDragging ? 'Drop files here' : 'Drag & drop multiple files'}
-                            </h3>
-                            <p className="text-slate-500 mb-4">
-                                or click to browse. Select all student assignments.
-                            </p>
-                            <div className="flex flex-wrap justify-center gap-2">
-                                <span className="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold">PDF</span>
-                                <span className="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-bold">DOCX</span>
-                                <span className="px-3 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-bold">Images</span>
+                        </Card>
+                        
+                        {/* Settings */}
+                        <Card rotate={0} className="p-6 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                                        Max Score per Question
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={maxScore}
+                                        onChange={(e) => setMaxScore(parseInt(e.target.value) || 10)}
+                                        min="1"
+                                        max="100"
+                                        className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-ms-blue focus:outline-none transition-colors font-medium"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Maximum points for each question
+                                    </p>
+                                </div>
+                            </div>
+                        </Card>
+                        
+                        {/* CSV Upload Area */}
+                        <div
+                            onDragOver={onDragOver}
+                            onDragLeave={onDragLeave}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                setIsDragging(false);
+                                const droppedFile = e.dataTransfer.files[0];
+                                if (droppedFile && droppedFile.name.endsWith('.csv')) {
+                                    setCsvFile(droppedFile);
+                                }
+                            }}
+                            className={`
+                                relative border-4 border-dashed rounded-[2rem] p-12 text-center transition-all duration-300 mb-6
+                                ${isDragging 
+                                    ? 'border-ms-blue bg-ms-blue/5 scale-[1.02]' 
+                                    : 'border-slate-300 dark:border-slate-700 hover:border-ms-blue/50'
+                                }
+                            `}
+                        >
+                            <input
+                                type="file"
+                                onChange={handleCsvFileInput}
+                                accept=".csv"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                disabled={importing}
+                            />
+                            
+                            <div className="relative z-10">
+                                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                    <FileSpreadsheet className={`w-10 h-10 text-green-600 dark:text-green-400 transition-transform ${isDragging ? 'scale-110' : ''}`} />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                                    {csvFile ? csvFile.name : (isDragging ? 'Drop CSV here' : 'Upload Google Forms CSV')}
+                                </h3>
+                                <p className="text-slate-500 mb-4">
+                                    {csvFile 
+                                        ? `File size: ${(csvFile.size / 1024).toFixed(1)} KB` 
+                                        : 'Drag & drop or click to select CSV file'}
+                                </p>
+                                <span className="px-4 py-2 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-sm font-bold">
+                                    CSV Only
+                                </span>
                             </div>
                         </div>
-                    </div>
-                </motion.div>
+                        
+                        {/* Import Button */}
+                        {csvFile && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                            >
+                                <button
+                                    onClick={handleGoogleFormsImport}
+                                    disabled={importing}
+                                    className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-xl border-4 border-slate-900 dark:border-white shadow-brutal hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                >
+                                    {importing ? (
+                                        <>
+                                            <Loader2 size={20} className="animate-spin" />
+                                            Importing & Evaluating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FileSpreadsheet size={20} />
+                                            Import from Google Forms
+                                            <ArrowRight size={20} />
+                                        </>
+                                    )}
+                                </button>
+                            </motion.div>
+                        )}
+                    </motion.div>
+                )}
+                
+                {/* FILE UPLOAD TAB */}
+                {activeTab === 'files' && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                    >
+                        {/* Upload Area */}
+                        <div
+                            onDragOver={onDragOver}
+                            onDragLeave={onDragLeave}
+                            onDrop={onDrop}
+                            className={`
+                                relative border-4 border-dashed rounded-[2rem] p-12 text-center transition-all duration-300
+                                ${isDragging 
+                                    ? 'border-ms-blue bg-ms-blue/5 scale-[1.02]' 
+                                    : 'border-slate-300 dark:border-slate-700 hover:border-ms-blue/50'
+                                }
+                            `}
+                        >
+                            <input
+                                type="file"
+                                multiple
+                                onChange={handleFileInput}
+                                accept=".pdf,.docx,.png,.jpg,.jpeg"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                disabled={uploading}
+                            />
+                            
+                            <div className="relative z-10">
+                                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-ms-blue/10 flex items-center justify-center">
+                                    <UploadCloud className={`w-10 h-10 text-ms-blue transition-transform ${isDragging ? 'scale-110' : ''}`} />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                                    {isDragging ? 'Drop files here' : 'Drag & drop multiple files'}
+                                </h3>
+                                <p className="text-slate-500 mb-4">
+                                    or click to browse. Select all student assignments.
+                                </p>
+                                <div className="flex flex-wrap justify-center gap-2">
+                                    <span className="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold">PDF</span>
+                                    <span className="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-bold">DOCX</span>
+                                    <span className="px-3 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-bold">Images</span>
+                                </div>
+                            </div>
+                        </div>
 
                 {/* File List */}
                 {files.length > 0 && (
@@ -407,6 +607,8 @@ const ClassroomUpload = () => {
                                 )}
                             </button>
                         </Card>
+                    </motion.div>
+                )}
                     </motion.div>
                 )}
 

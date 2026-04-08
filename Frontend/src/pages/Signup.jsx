@@ -42,34 +42,6 @@ const Signup = () => {
         setIsLoading(true);
         setError('');
 
-<<<<<<< HEAD
-        // DEMO MODE: Skip API call, auto-login as demo teacher
-        setTimeout(() => {
-            // Store demo auth data
-            storage.setAuth('demo_token', {
-                id: 'teacher_001',
-                email: formData.email || 'demo@teacher.com',
-                name: formData.name || 'Demo Teacher'
-            });
-            setIsLoading(false);
-            navigate('/dashboard');
-        }, 1000);
-        
-        // PRODUCTION: Uncomment below and remove setTimeout above
-        // try {
-        //     const response = await authAPI.register(formData.name, formData.email, formData.password);
-        //     if (response.success) {
-        //         storage.setAuth(response.data.token, response.data.user);
-        //         navigate('/dashboard');
-        //     } else {
-        //         setError(response.message || 'Registration failed');
-        //     }
-        // } catch (err) {
-        //     setError('Network error. Please try again.');
-        // } finally {
-        //     setIsLoading(false);
-        // }
-=======
         try {
             const response = await authAPI.register(
                 formData.name, 
@@ -89,7 +61,6 @@ const Signup = () => {
         } finally {
             setIsLoading(false);
         }
->>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
     };
 
     return (
