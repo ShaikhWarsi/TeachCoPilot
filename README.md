@@ -45,6 +45,191 @@ Edu-Evaluator-main/
 └── README.md
 ```
 
+## 🏗️ Technical Architecture
+
+### 1. System Component Overview
+This diagram illustrates how the React frontend interacts with the Python/Flask backend and the distribution of tasks between local OCR processing and high-speed LLM inference via Groq.
+
+```mermaid
+graph TB
+    %% Styling
+    classDef client fill:#f9f9f9,stroke:#3b82f6,stroke-width:2px;
+    classDef flask fill:#fff7ed,stroke:#f97316,stroke-width:2px;
+    classDef ocr fill:#f0fdf4,stroke:#22c55e,stroke-width:2px;
+    classDef ai fill:#faf5ff,stroke:#a855f7,stroke-width:2px;
+
+    subgraph Client_Layer ["Frontend (React + Vite)"]
+        UI[MSTC-VITB Brutalist UI]:::client
+        Hooks[API Hooks / Axios]:::client
+        Charts[Recharts Engine]:::client
+    end
+
+    subgraph Server_Layer ["Backend (Flask Controller)"]
+        API[REST API Handlers]:::flask
+        Sess[Flask Session Store]:::flask
+        AEngine[Analytics Engine]:::flask
+    end
+
+    subgraph Processing_Layer ["OCR & Extraction (Local)"]
+        P2I[pdf2image / Poppler]:::ocr
+        Tess[Tesseract OCR Engine]:::ocr
+        DocX[python-docx Parser]:::ocr
+    end
+
+    subgraph AI_Layer ["Inference (Groq)"]
+        Groq[Groq API - Llama 3 8B]:::ai
+    end
+
+    %% Flow
+    UI -->|Multipart Upload| API
+    API -->|Routing| Processing_Layer
+    Processing_Layer -->|Clean Text| API
+    API -->|Payload| Groq
+    Groq -->|Structured JSON| API
+    API -->|Persist| Sess
+    API -->|Aggregate| AEngine
+    AEngine -->|JSON Data| Charts
+    API -->|Response| UI
+```
+
+### 2. Multi-Format Batch Evaluation Flow
+Detailed logic for handling multiple student filenames concurrently, extracting text based on file extensions, and performing AI-driven evaluation.
+
+```mermaid
+flowchart TD
+    %% Styling
+    classDef start fill:#e0f2fe,stroke:#0369a1,stroke-width:2px;
+    classDef logic fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+    classDef disk fill:#f1f5f9,stroke:#475569,stroke-width:2px;
+    classDef error fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+
+    Start([Batch Upload: Up to 30 Files]):::start --> Loop{For Each File}
+    
+    subgraph Extraction_Logic ["File Processing Pipeline"]
+        direction TB
+        Ext{Check Extension}
+        Ext -- PDF --> ToImg[Convert PDF to PIL Image]
+        ToImg --> OCR[Tesseract OCR Process]
+        Ext -- Image --> OCR
+        Ext -- DOCX --> DX[python-docx Text Pull]
+    end
+
+    Loop --> Ext
+    OCR --> Sanitize[Clean Whitespace & Format]
+    DX --> Sanitize
+
+    subgraph AI_Evaluation_Logic ["Groq Orchestration"]
+        direction TB
+        Prompt[Inject Rubric & System Prompt]
+        Call[Groq API Request]
+        Parse{JSON Integrity Check}
+        Retry[Backoff & Retry]
+    end
+
+    Sanitize --> Prompt
+    Prompt --> Call
+    Call --> Parse
+    Parse -- Fail --> Retry
+    Retry --> Call
+    
+    Parse -- Success --> DB[Store in Session / CSV]:::disk
+    
+    DB --> Analytics[Update Live Analytics Dashboard]
+    Analytics --> Progress[Emit Progress to Frontend]
+    
+    Progress -->|"Next File"| Loop
+    Loop -- "All Processed" --> Finish([Generate Batch CSV Report]):::start
+
+    Parse -- Persistent Fail --> ErrNode([Log Error & Mask Result]):::error
+```
+
+### 3. Systematic Interaction (Sequence Diagram)
+This diagram maps the synchronous and asynchronous triggers between the Teacher UI, the Local Processing worker, and the Groq Inference Engine.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T as Teacher (UI)
+    participant B as Backend (Flask)
+    participant O as Local OCR/Parser
+    participant G as Groq AI (Llama 3)
+    
+    T->>B: POST /api/classrooms/{id}/upload (Batch)
+    Note over B: Initialize Processing Context
+    
+    loop Every Student Submission
+        B->>O: Send Binary Data (PDF/DOCX/IMG)
+        O->>O: Local Tesseract/Docx Logic
+        O-->>B: Extracted Clean Text
+        
+        Note right of B: Prompt Construction
+        
+        B->>G: API Request (System Prompt + Rubric)
+        G-->>B: Validated JSON Response
+        B->>B: Update Session Stats & CSV
+    end
+    
+    B->>B: Run Analytics Engine
+    B-->>T: 200 OK (Full Analytics Packet)
+    Note over T: Update Recharts Visualization
+```
+
+### 4. Assignment Lifecycle (State Machine)
+Visualizing the state transitions of a student submission from 'Raw File' to 'Evaluated Metric'.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Uploading: Teacher Submits Files
+    
+    state "Evaluation Layer" as Evaluation {
+        state OCR_Processing <<choice>>
+        Uploading --> OCR_Processing
+        OCR_Processing --> Text_Cleaned: Success
+        OCR_Processing --> Extraction_Error: Failure
+        
+        Text_Cleaned --> AI_Requesting: Generate Prompt
+        AI_Requesting --> Feedback_Received: JSON Success
+        AI_Requesting --> Validation_Error: JSON Failure
+    }
+    
+    Feedback_Received --> Data_Persistence: Save to Session
+    Data_Persistence --> Analytics_Engine: Update Stats
+    Analytics_Engine --> Completed: View Dashboard
+    
+    Extraction_Error --> Idle
+    Validation_Error --> Idle
+    Completed --> [*]
+```
+
+### 5. High-Level Dataflow (DFD)
+Tracing the transformation of data from physical submission to analytical insights.
+
+```mermaid
+flowchart LR
+    %% Data Sources
+    A([Student Files]) --> B[[Flask API Gateway]]
+    R[(Grading Rubric)] --> B
+    
+    %% Transformations
+    subgraph Local_Compute ["Local Compute"]
+        B -->|Binary| C[OCR Engine]
+        C -->|Raw Text| D[Format & Clean]
+    end
+    
+    subgraph Cloud_Inference ["Cloud Inference"]
+        D -->|JSON Payload| E[Groq Llama 3]
+        E -->|Feedback JSON| F[Validation Parser]
+    end
+    
+    %% Outputs
+    F --> G[(CSV Reports)]
+    F --> H[(Flask Sessions)]
+    H --> I{Analytics Engine}
+    I --> J[Teacher Dashboard]
+    G --> K([Downloadable CSV])
+```
+
 ## 🚀 Setup Instructions
 
 ### Prerequisites
