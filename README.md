@@ -53,10 +53,10 @@ This diagram illustrates how the React frontend interacts with the Python/Flask 
 ```mermaid
 graph TB
     %% Styling
-    classDef client fill:#f9f9f9,stroke:#3b82f6,stroke-width:2px;
-    classDef flask fill:#fff7ed,stroke:#f97316,stroke-width:2px;
-    classDef ocr fill:#f0fdf4,stroke:#22c55e,stroke-width:2px;
-    classDef ai fill:#faf5ff,stroke:#a855f7,stroke-width:2px;
+    classDef client fill:#e0f2fe,stroke:#2563eb,stroke-width:2px,color:#000;
+    classDef flask fill:#ffedd5,stroke:#ea580c,stroke-width:2px,color:#000;
+    classDef ocr fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#000;
+    classDef ai fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#000;
 
     subgraph Client_Layer ["Frontend (React + Vite)"]
         UI[MSTC-VITB Brutalist UI]:::client
@@ -98,32 +98,32 @@ Detailed logic for handling multiple student filenames concurrently, extracting 
 ```mermaid
 flowchart TD
     %% Styling
-    classDef start fill:#e0f2fe,stroke:#0369a1,stroke-width:2px;
-    classDef logic fill:#fef3c7,stroke:#d97706,stroke-width:2px;
-    classDef disk fill:#f1f5f9,stroke:#475569,stroke-width:2px;
-    classDef error fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+    classDef start fill:#bae6fd,stroke:#0284c7,stroke-width:2px,color:#000;
+    classDef logic fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#000;
+    classDef disk fill:#f1f5f9,stroke:#475569,stroke-width:2px,color:#000;
+    classDef error fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#1a1a1a;
 
-    Start([Batch Upload: Up to 30 Files]):::start --> Loop{For Each File}
+    Start([Batch Upload: Up to 30 Files]):::start --> Loop{For Each File}:::logic
     
     subgraph Extraction_Logic ["File Processing Pipeline"]
         direction TB
-        Ext{Check Extension}
-        Ext -- PDF --> ToImg[Convert PDF to PIL Image]
-        ToImg --> OCR[Tesseract OCR Process]
+        Ext{Check Extension}:::logic
+        Ext -- PDF --> ToImg[Convert PDF to PIL Image]:::logic
+        ToImg --> OCR[Tesseract OCR Process]:::logic
         Ext -- Image --> OCR
-        Ext -- DOCX --> DX[python-docx Text Pull]
+        Ext -- DOCX --> DX[python-docx Text Pull]:::logic
     end
 
     Loop --> Ext
-    OCR --> Sanitize[Clean Whitespace & Format]
+    OCR --> Sanitize[Clean Whitespace & Format]:::logic
     DX --> Sanitize
 
     subgraph AI_Evaluation_Logic ["Groq Orchestration"]
         direction TB
-        Prompt[Inject Rubric & System Prompt]
-        Call[Groq API Request]
-        Parse{JSON Integrity Check}
-        Retry[Backoff & Retry]
+        Prompt[Inject Rubric & System Prompt]:::logic
+        Call[Groq API Request]:::logic
+        Parse{JSON Integrity Check}:::logic
+        Retry[Backoff & Retry]:::logic
     end
 
     Sanitize --> Prompt
@@ -134,8 +134,8 @@ flowchart TD
     
     Parse -- Success --> DB[Store in Session / CSV]:::disk
     
-    DB --> Analytics[Update Live Analytics Dashboard]
-    Analytics --> Progress[Emit Progress to Frontend]
+    DB --> Analytics[Update Live Analytics Dashboard]:::disk
+    Analytics --> Progress[Emit Progress to Frontend]:::disk
     
     Progress -->|"Next File"| Loop
     Loop -- "All Processed" --> Finish([Generate Batch CSV Report]):::start
@@ -207,27 +207,34 @@ Tracing the transformation of data from physical submission to analytical insigh
 
 ```mermaid
 flowchart LR
+    %% Styling
+    classDef source fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#000;
+    classDef gateway fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#000;
+    classDef compute fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#000;
+    classDef cloud fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#000;
+    classDef output fill:#fff7ed,stroke:#f97316,stroke-width:2px,color:#000;
+
     %% Data Sources
-    A([Student Files]) --> B[[Flask API Gateway]]
-    R[(Grading Rubric)] --> B
+    A([Student Files]):::source --> B[[Flask API Gateway]]:::gateway
+    R[(Grading Rubric)]:::source --> B
     
     %% Transformations
     subgraph Local_Compute ["Local Compute"]
-        B -->|Binary| C[OCR Engine]
-        C -->|Raw Text| D[Format & Clean]
+        B -->|Binary| C[OCR Engine]:::compute
+        C -->|Raw Text| D[Format & Clean]:::compute
     end
     
     subgraph Cloud_Inference ["Cloud Inference"]
-        D -->|JSON Payload| E[Groq Llama 3]
-        E -->|Feedback JSON| F[Validation Parser]
+        D -->|JSON Payload| E[Groq Llama 3]:::cloud
+        E -->|Feedback JSON| F[Validation Parser]:::cloud
     end
     
     %% Outputs
-    F --> G[(CSV Reports)]
-    F --> H[(Flask Sessions)]
-    H --> I{Analytics Engine}
-    I --> J[Teacher Dashboard]
-    G --> K([Downloadable CSV])
+    F --> G[(CSV Reports)]:::output
+    F --> H[(Flask Sessions)]:::output
+    H --> I{Analytics Engine}:::output
+    I --> J[Teacher Dashboard]:::output
+    G --> K([Downloadable CSV]):::output
 ```
 
 ## 🚀 Setup Instructions
