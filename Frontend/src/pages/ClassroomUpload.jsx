@@ -2,13 +2,13 @@ import React, { useState, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { 
     UploadCloud, File, X, CheckCircle, AlertCircle, 
-    ChevronLeft, Loader2, Users, ArrowRight, FileSpreadsheet, ExternalLink
+    ChevronLeft, Loader2, Users, ArrowRight, FileSpreadsheet, ExternalLink, FileText
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Card from '../components/Card';
 import { classroomAPI } from '../services/api';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'https://rachit-tw-teco.hf.space/api';
 
 const ClassroomUpload = () => {
     const { id } = useParams();
@@ -20,6 +20,7 @@ const ClassroomUpload = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
+    const [questionsFile, setQuestionsFile] = useState(null);
     
     // Google Forms states
     const [csvFile, setCsvFile] = useState(null);
@@ -94,7 +95,7 @@ const ClassroomUpload = () => {
         setProgress({ current: 0, total: files.length });
         
         try {
-            const result = await classroomAPI.uploadBatch(id, files.map(f => f.file));
+            const result = await classroomAPI.uploadBatch(id, files.map(f => f.file), questionsFile);
             
             if (result.success) {
                 setResults(result.data);
@@ -141,6 +142,17 @@ const ClassroomUpload = () => {
         } else {
             setError('Please select a valid CSV file');
         }
+    };
+
+    const handleQuestionsFile = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setQuestionsFile(file);
+        }
+    };
+
+    const removeQuestionsFile = () => {
+        setQuestionsFile(null);
     };
 
     const handleDone = () => {
@@ -475,6 +487,73 @@ const ClassroomUpload = () => {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                     >
+                        {/* Questions File Upload */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="mb-6"
+                        >
+                            <Card rotate={0} className="p-6">
+                                <div className="flex items-start gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-full bg-ms-violet/10 flex items-center justify-center flex-shrink-0">
+                                        <FileText className="w-5 h-5 text-ms-violet" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                                            Upload Questions PDF (Optional)
+                                        </h3>
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                                            Upload the question paper or answer key for more accurate grading
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                {!questionsFile ? (
+                                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-6 text-center hover:border-ms-violet/50 transition-colors">
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.docx"
+                                            onChange={handleQuestionsFile}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            style={{ position: 'absolute', top: 0, left: 0 }}
+                                            disabled={uploading}
+                                        />
+                                        <div className="relative z-10">
+                                            <FileText className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                                            <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                Click to upload questions file
+                                            </p>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                PDF or DOCX containing questions/answer key
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-between p-4 rounded-xl bg-ms-violet/10 border-2 border-ms-violet/30">
+                                        <div className="flex items-center gap-3">
+                                            <FileText className="w-8 h-8 text-ms-violet" />
+                                            <div>
+                                                <div className="font-bold text-slate-900 dark:text-white text-sm">
+                                                    {questionsFile.name}
+                                                </div>
+                                                <div className="text-xs text-slate-500">
+                                                    {(questionsFile.size / 1024 / 1024).toFixed(2)} MB
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={removeQuestionsFile}
+                                            disabled={uploading}
+                                            className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    </div>
+                                )}
+                            </Card>
+                        </motion.div>
+
                         {/* Upload Area */}
                         <div
                             onDragOver={onDragOver}

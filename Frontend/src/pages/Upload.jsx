@@ -6,10 +6,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Card from '../components/Card';
-import { storage } from '../services/api';
-
-// API Configuration
-const API_BASE_URL = 'http://localhost:5000/api';
+import { storage, evaluationAPI } from '../services/api';
 
 const Upload = () => {
     const navigate = useNavigate();
@@ -20,6 +17,7 @@ const Upload = () => {
     const [assignmentName, setAssignmentName] = useState('');
     const [subject, setSubject] = useState('');
     const [error, setError] = useState(null);
+    const [questionsFile, setQuestionsFile] = useState(null);
 
     const onDragOver = useCallback((e) => {
         e.preventDefault();
@@ -41,6 +39,17 @@ const Upload = () => {
     const handleFileInput = (e) => {
         const selectedFiles = Array.from(e.target.files);
         handleFiles(selectedFiles);
+    };
+
+    const handleQuestionsFile = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setQuestionsFile(file);
+        }
+    };
+
+    const removeQuestionsFile = () => {
+        setQuestionsFile(null);
     };
 
     const handleFiles = (newFiles) => {
@@ -78,47 +87,30 @@ const Upload = () => {
         
         setIsUploading(true);
         setError(null);
-        setUploadProgress(10);
+        setUploadProgress(30);
         
         try {
             // For single file evaluation, use the first file
             const fileToUpload = files[0].file;
             
-            // Create FormData
-            const formData = new FormData();
-            formData.append('file', fileToUpload);
-            formData.append('assignment_name', assignmentName);
-            formData.append('subject', subject);
-            
-            setUploadProgress(30);
-            
-            // Send to backend
-            const response = await fetch(`${API_BASE_URL}/evaluate`, {
-                method: 'POST',
-                body: formData,
-            });
+            // Use evaluationAPI service with proper auth headers and optional questions file
+            const result = await evaluationAPI.evaluate(fileToUpload, assignmentName, subject, questionsFile);
             
             setUploadProgress(70);
             
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            setUploadProgress(100);
-            
             if (result.success) {
-                // Store evaluation data in localStorage for Results page (persists across refreshes)
+                // Store evaluation data in localStorage for Results page
                 storage.setEvaluationResult({
                     ...result.data,
                     originalFileName: files[0].name
                 });
                 
+                setUploadProgress(100);
+                
                 // Navigate to results page
                 navigate('/results');
             } else {
-                throw new Error(result.message || 'Evaluation failed');
+                throw new Error(result.message || result.error || 'Evaluation failed');
             }
             
         } catch (err) {
@@ -205,6 +197,72 @@ const Upload = () => {
                                 </select>
                             </div>
                         </div>
+                    </Card>
+                </motion.div>
+
+                {/* Questions File Upload */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="mb-6"
+                >
+                    <Card rotate={0} className="p-6">
+                        <div className="flex items-start gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-full bg-ms-violet/10 flex items-center justify-center flex-shrink-0">
+                                <FileText className="w-5 h-5 text-ms-violet" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                                    Upload Questions PDF (Optional)
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Upload the question paper or answer key for more accurate grading
+                                </p>
+                            </div>
+                        </div>
+                        
+                        {!questionsFile ? (
+                            <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-6 text-center hover:border-ms-violet/50 transition-colors">
+                                <input
+                                    type="file"
+                                    accept=".pdf,.docx"
+                                    onChange={handleQuestionsFile}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    style={{ position: 'absolute', top: 0, left: 0 }}
+                                />
+                                <div className="relative z-10">
+                                    <FileText className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                                    <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                                        Click to upload questions file
+                                    </p>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        PDF or DOCX containing questions/answer key
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between p-4 rounded-xl bg-ms-violet/10 border-2 border-ms-violet/30">
+                                <div className="flex items-center gap-3">
+                                    <FileText className="w-8 h-8 text-ms-violet" />
+                                    <div>
+                                        <div className="font-bold text-slate-900 dark:text-white text-sm">
+                                            {questionsFile.name}
+                                        </div>
+                                        <div className="text-xs text-slate-500">
+                                            {(questionsFile.size / 1024 / 1024).toFixed(2)} MB
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={removeQuestionsFile}
+                                    disabled={isUploading}
+                                    className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        )}
                     </Card>
                 </motion.div>
 

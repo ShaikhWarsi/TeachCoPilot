@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Brain, Eye, EyeOff, ArrowRight, Mail, Lock, Loader2, Sparkles } from 'lucide-react';
+import { Brain, Eye, EyeOff, ArrowRight, Mail, Lock, Loader2, Sparkles, Server } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Card from '../components/Card';
 import { authAPI, storage } from '../services/api';
@@ -12,13 +12,11 @@ const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Check if already logged in
+    // Clear any existing session on login page load (fresh start)
     useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            navigate('/dashboard');
-        }
-    }, [navigate]);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -48,15 +46,43 @@ const Login = () => {
         
         // Simulate loading for better UX
         setTimeout(() => {
-            // Store demo auth data
-            storage.setAuth('demo_token_' + Date.now(), {
-                id: 'demo_teacher_' + Date.now(),
+            // Store demo auth data - matches backend DEMO_USER
+            storage.setAuth('demo_token', {
+                id: 'demo_teacher',
                 email: 'demo@teachercopilot.com',
                 name: 'Demo Teacher'
             });
             setIsLoading(false);
             navigate('/dashboard');
         }, 800);
+    };
+
+    const handleTestBackend = async () => {
+        setIsLoading(true);
+        setError('');
+        
+        try {
+            // Test backend connection - make real API call
+            const response = await fetch('https://rachit-tw-teco.hf.space/api/health');
+            const data = await response.json();
+            
+            if (response.ok) {
+                // Store test mode token - uses real backend APIs
+                storage.setAuth('test_token', {
+                    id: 'test_teacher',
+                    email: 'test@backend.com',
+                    name: 'Backend Test User'
+                });
+                setIsLoading(false);
+                navigate('/dashboard');
+            } else {
+                setError('Backend not responding. Check if server is running.');
+                setIsLoading(false);
+            }
+        } catch (err) {
+            setError('Cannot connect to backend. Check URL or CORS settings.');
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -217,7 +243,26 @@ const Login = () => {
                             )}
                         </button>
                         <p className="text-center text-xs text-slate-500 mt-2">
-                            Skip registration - instant access with sample data
+                            Skip registration - frontend-only with mock data
+                        </p>
+
+                        {/* Test Backend Mode */}
+                        <button
+                            onClick={handleTestBackend}
+                            disabled={isLoading}
+                            className="w-full mt-3 py-3 bg-gradient-to-r from-ms-green to-ms-blue text-white font-bold rounded-xl border-2 border-slate-900 dark:border-white shadow-brutal hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-70"
+                        >
+                            {isLoading ? (
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <>
+                                    <Server size={18} />
+                                    Test Real Backend
+                                </>
+                            )}
+                        </button>
+                        <p className="text-center text-xs text-slate-500 mt-2">
+                            Connects to https://rachit-tw-teco.hf.space - no login needed
                         </p>
 
                         {/* Sign up link */}

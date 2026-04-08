@@ -10,8 +10,7 @@ import {
     PieChart, Pie, Cell, Legend
 } from 'recharts';
 import Card from '../components/Card';
-
-const API_BASE_URL = 'http://localhost:5000/api';
+import { classroomAPI } from '../services/api';
 
 const COLORS = ['#00A4EF', '#7F00FF', '#7fba00', '#ffb900', '#f25022'];
 
@@ -27,8 +26,7 @@ const ClassroomAnalytics = () => {
 
     const fetchAnalytics = async () => {
         try {
-            const response = await fetch(`${API_BASE_URL}/classrooms/${id}/analytics`);
-            const result = await response.json();
+            const result = await classroomAPI.getAnalytics(id);
             if (result.success) {
                 setAnalytics(result.data);
             }
@@ -41,19 +39,9 @@ const ClassroomAnalytics = () => {
 
     const handleRegenerate = async () => {
         setRegenerating(true);
-        try {
-            const response = await fetch(`${API_BASE_URL}/classrooms/${id}/regenerate-analytics`, {
-                method: 'POST'
-            });
-            const result = await response.json();
-            if (result.success) {
-                setAnalytics(result.data);
-            }
-        } catch (error) {
-            console.error('Error regenerating analytics:', error);
-        } finally {
-            setRegenerating(false);
-        }
+        // In demo mode, just re-fetch; in real mode would regenerate
+        await fetchAnalytics();
+        setRegenerating(false);
     };
 
     const getScoreColor = (score) => {
@@ -71,9 +59,26 @@ const ClassroomAnalytics = () => {
         );
     }
 
-    if (!analytics) return null;
+    if (!analytics) {
+        return (
+            <div className="page-container flex items-center justify-center">
+                <div className="text-center">
+                    <p className="text-slate-500">No analytics available yet.</p>
+                    <p className="text-sm text-slate-400 mt-2">Upload some assignments first!</p>
+                </div>
+            </div>
+        );
+    }
 
     const { overview, score_distribution, pass_fail_ratio, common_mistakes, weakest_concepts, student_ranking, class_insight } = analytics;
+    
+    // Guard against empty data
+    const safeScoreDistribution = score_distribution || [];
+    const safePassFailRatio = pass_fail_ratio || { passing: 0, failing: 0 };
+    const safeCommonMistakes = common_mistakes || [];
+    const safeWeakestConcepts = weakest_concepts || [];
+    const safeStudentRanking = student_ranking || [];
+    const safeClassInsight = class_insight || 'No insights available yet.';
 
     return (
         <div className="page-container">
@@ -114,13 +119,13 @@ const ClassroomAnalytics = () => {
                             <RefreshCw size={18} className={regenerating ? 'animate-spin' : ''} />
                             Refresh
                         </button>
-                        <Link
-                            to={`/api/classrooms/${id}/report`}
+                        <button
+                            onClick={() => alert('Export feature coming soon!')}
                             className="px-4 py-2 bg-ms-blue text-white font-bold rounded-xl border-4 border-slate-900 dark:border-white shadow-brutal hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-none transition-all flex items-center gap-2"
                         >
                             <Download size={18} />
                             Export CSV
-                        </Link>
+                        </button>
                     </div>
                 </motion.div>
 
@@ -173,7 +178,7 @@ const ClassroomAnalytics = () => {
                             </h3>
                             <div className="h-64">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={score_distribution}>
+                                    <BarChart data={safeScoreDistribution}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                                         <XAxis dataKey="range" tick={{fontSize: 12}} />
                                         <YAxis />
@@ -203,8 +208,8 @@ const ClassroomAnalytics = () => {
                                     <PieChart>
                                         <Pie
                                             data={[
-                                                { name: 'Passing (≥60)', value: pass_fail_ratio.passing },
-                                                { name: 'Failing (<60)', value: pass_fail_ratio.failing }
+                                                { name: 'Passing (≥60)', value: safePassFailRatio.passing },
+                                                { name: 'Failing (<60)', value: safePassFailRatio.failing }
                                             ]}
                                             cx="50%"
                                             cy="50%"
@@ -241,7 +246,7 @@ const ClassroomAnalytics = () => {
                                 Most Common Mistakes
                             </h3>
                             <div className="space-y-3">
-                                {common_mistakes.slice(0, 5).map((mistake, idx) => (
+                                {safeCommonMistakes.slice(0, 5).map((mistake, idx) => (
                                     <div 
                                         key={idx}
                                         className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800"
@@ -267,48 +272,50 @@ const ClassroomAnalytics = () => {
                         </Card>
                     </motion.div>
 
-                    {/* Weakest Concepts */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                    >
-                        <Card rotate={1}>
-                            <h3 className="text-xl font-display font-black text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                <BookOpen className="text-ms-violet" />
-                                Weakest Concepts
-                            </h3>
-                            <div className="space-y-3">
-                                {weakest_concepts.map((concept, idx) => (
-                                    <div 
-                                        key={idx}
-                                        className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800"
-                                    >
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">
-                                                {concept.concept}
-                                            </span>
-                                            <span className="text-xs font-bold text-ms-orange">
-                                                {concept.affected_students} students
-                                            </span>
-                                        </div>
-                                        <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                            <div 
-                                                className="h-full bg-ms-violet"
-                                                style={{ width: `${concept.mastery_rate}%` }}
-                                            />
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1">
-                                            {concept.mastery_rate}% mastery rate
-                                        </p>
+                {/* Weakest Concepts */}
+                {weakest_concepts && weakest_concepts.length > 0 && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                >
+                    <Card rotate={1}>
+                        <h3 className="text-xl font-display font-black text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <BookOpen className="text-ms-violet" />
+                            Weakest Concepts
+                        </h3>
+                        <div className="space-y-3">
+                            {safeWeakestConcepts.map((concept, idx) => (
+                                <div 
+                                    key={idx}
+                                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800"
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">
+                                            {concept.concept || 'Unknown Concept'}
+                                        </span>
+                                        <span className="text-xs font-bold text-ms-orange">
+                                            {concept.affected_students || 0} students
+                                        </span>
                                     </div>
-                                ))}
-                            </div>
-                        </Card>
-                    </motion.div>
-                </div>
+                                    <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full bg-ms-violet"
+                                            style={{ width: `${concept.mastery_rate || 0}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {concept.mastery_rate || 0}% mastery rate
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                </motion.div>
+                )}
+            </div>
 
-                {/* Class Insight */}
+            {/* Class Insight */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -325,7 +332,7 @@ const ClassroomAnalytics = () => {
                                     AI Class Insight
                                 </h3>
                                 <p className="text-white/90 leading-relaxed">
-                                    {class_insight}
+                                    {safeClassInsight}
                                 </p>
                             </div>
                         </div>
@@ -354,7 +361,7 @@ const ClassroomAnalytics = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {student_ranking.slice(0, 10).map((student) => (
+                                    {safeStudentRanking.slice(0, 10).map((student) => (
                                         <tr 
                                             key={student.submission_id}
                                             className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"

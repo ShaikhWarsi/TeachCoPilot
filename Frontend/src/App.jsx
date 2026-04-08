@@ -54,6 +54,7 @@ function App() {
                         <Route path="/classroom/:id" element={<ClassroomDetail />} />
                         <Route path="/classroom/:id/upload" element={<ClassroomUpload />} />
                         <Route path="/classroom/:id/analytics" element={<ClassroomAnalytics />} />
+                        <Route path="/classroom/:id/submission/:subId" element={<ClassroomDetail />} />
                         
                         <Route path="*" element={<NotFound />} />
                     </Route>

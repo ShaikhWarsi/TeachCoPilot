@@ -1,9 +1,22 @@
 /**
  * API Service - Centralized API calls with authentication
  * Uses localStorage for persistent auth (not sessionStorage)
+ * DEMO MODE: When token is 'demo_token', uses frontend-only mock APIs
  */
 
-const API_BASE_URL = 'http://localhost:5000/api';
+import { demoAPI } from './demoApi';
+
+const API_BASE_URL = 'https://rachit-tw-teco.hf.space/api';
+
+// Check mode: demo = mock data, test = real backend, normal = regular auth
+const getMode = () => {
+    const token = localStorage.getItem('token');
+    if (token === 'demo_token') return 'demo';
+    if (token === 'test_token') return 'test';
+    return 'normal';
+};
+const isDemoMode = () => getMode() === 'demo';
+const isTestMode = () => getMode() === 'test';
 
 // Helper to get auth headers
 const getAuthHeaders = () => {
@@ -56,111 +69,131 @@ const apiCall = async (endpoint, options = {}) => {
 
 export const authAPI = {
     register: (name, email, password) => 
-        apiCall('/auth/register', {
-            method: 'POST',
-            body: JSON.stringify({ name, email, password })
-        }),
+        isDemoMode() 
+            ? demoAPI.auth.register(name, email, password)
+            : apiCall('/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({ name, email, password })
+            }),
     
     login: (email, password, remember = false) => 
-        apiCall('/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ email, password, remember })
-        }),
+        isDemoMode()
+            ? demoAPI.auth.login()
+            : apiCall('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password, remember })
+            }),
     
     logout: () => 
-        apiCall('/auth/logout', {
-            method: 'POST'
-        }),
+        isDemoMode()
+            ? demoAPI.auth.logout()
+            : apiCall('/auth/logout', { method: 'POST' }),
     
     verifyToken: () => 
-        apiCall('/auth/verify'),
+        isDemoMode()
+            ? Promise.resolve({ success: true, data: { user: demoAPI.classroom.list().then(r => r.data) } })
+            : apiCall('/auth/verify'),
     
     getMe: () => 
-        apiCall('/auth/me')
+        isDemoMode()
+            ? Promise.resolve({ success: true, data: { id: 'demo_teacher', name: 'Demo Teacher', email: 'demo@teachercopilot.com' } })
+            : apiCall('/auth/me')
 };
 
 // ==================== CLASSROOM API ====================
 
 export const classroomAPI = {
     list: () => 
-        apiCall('/classrooms'),
+        isDemoMode()
+            ? demoAPI.classroom.list()
+            : apiCall('/classrooms'),
     
     create: (name, subject, assignment_title) => 
-        apiCall('/classrooms', {
-            method: 'POST',
-            body: JSON.stringify({ name, subject, assignment_title })
-        }),
+        isDemoMode()
+            ? demoAPI.classroom.create(name, subject, assignment_title)
+            : apiCall('/classrooms', {
+                method: 'POST',
+                body: JSON.stringify({ name, subject, assignment_title })
+            }),
     
     get: (id) => 
-        apiCall(`/classrooms/${id}`),
+        isDemoMode()
+            ? demoAPI.classroom.get(id)
+            : apiCall(`/classrooms/${id}`),
     
     delete: (id) => 
-        apiCall(`/classrooms/${id}`, {
-            method: 'DELETE'
-        }),
+        isDemoMode()
+            ? demoAPI.classroom.delete(id)
+            : apiCall(`/classrooms/${id}`, { method: 'DELETE' }),
     
-    uploadBatch: (id, files) => {
-        const formData = new FormData();
-        files.forEach(file => formData.append('files', file));
-        return apiCall(`/classrooms/${id}/upload`, {
-            method: 'POST',
-            body: formData
-        });
-    },
+    uploadBatch: (id, files, questionsFile = null) =>
+        isDemoMode()
+            ? demoAPI.classroom.uploadBatch(id, files, questionsFile)
+            : (() => {
+                const fd = new FormData();
+                files.forEach(f => fd.append('files', f));
+                if (questionsFile) {
+                    fd.append('questions_file', questionsFile);
+                }
+                return apiCall(`/classrooms/${id}/upload`, { method: 'POST', body: fd });
+            })(),
     
-    importGoogleForms: (id, csvFile, maxScorePerQuestion = 10) => {
-        const formData = new FormData();
-        formData.append('csv_file', csvFile);
-        formData.append('max_score_per_question', maxScorePerQuestion);
-        return apiCall(`/classrooms/${id}/import-google-forms`, {
-            method: 'POST',
-            body: formData
-        });
-    },
+    importGoogleForms: (id, csvFile, maxScorePerQuestion = 10) =>
+        isDemoMode()
+            ? demoAPI.classroom.importGoogleForms(id, csvFile, maxScorePerQuestion)
+            : apiCall(`/classrooms/${id}/import-google-forms`, {
+                method: 'POST',
+                body: (() => { const fd = new FormData(); fd.append('csv_file', csvFile); fd.append('max_score_per_question', maxScorePerQuestion); return fd; })()
+            }),
     
     getSubmissions: (id) => 
-        apiCall(`/classrooms/${id}/submissions`),
+        isDemoMode()
+            ? demoAPI.classroom.getSubmissions(id)
+            : apiCall(`/classrooms/${id}/submissions`),
     
     getSubmission: (classroomId, submissionId) => 
-        apiCall(`/classrooms/${classroomId}/submissions/${submissionId}`),
+        isDemoMode()
+            ? Promise.resolve({ success: true, data: null }) // Mock
+            : apiCall(`/classrooms/${classroomId}/submissions/${submissionId}`),
     
     getAnalytics: (id) => 
-        apiCall(`/classrooms/${id}/analytics`)
+        isDemoMode()
+            ? demoAPI.classroom.getAnalytics(id)
+            : apiCall(`/classrooms/${id}/analytics`)
 };
 
 // ==================== EVALUATION API ====================
 
 export const evaluationAPI = {
-    evaluate: (file, assignmentName, subject) => {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('assignment_name', assignmentName);
-        formData.append('subject', subject);
-        return apiCall('/evaluate', {
-            method: 'POST',
-            body: formData
-        });
-    },
+    evaluate: (file, assignmentName, subject, questionsFile = null) =>
+        isDemoMode()
+            ? demoAPI.evaluation.evaluate(file, assignmentName, subject, questionsFile)
+            : (() => {
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('assignment_name', assignmentName);
+                fd.append('subject', subject);
+                if (questionsFile) {
+                    fd.append('questions_file', questionsFile);
+                }
+                return apiCall('/evaluate', { method: 'POST', body: fd });
+            })(),
     
-    batchEvaluate: (files, assignmentName) => {
-        const formData = new FormData();
-        files.forEach(file => formData.append('files', file));
-        formData.append('assignment_name', assignmentName);
-        return apiCall('/batch-evaluate', {
-            method: 'POST',
-            body: formData
-        });
-    },
+    batchEvaluate: (files, assignmentName) =>
+        isDemoMode()
+            ? demoAPI.evaluation.batchEvaluate(files, assignmentName)
+            : apiCall('/batch-evaluate', {
+                method: 'POST',
+                body: (() => { const fd = new FormData(); files.forEach(f => fd.append('files', f)); fd.append('assignment_name', assignmentName); return fd; })()
+            }),
     
-    importGoogleForms: (csvFile, totalMarks) => {
-        const formData = new FormData();
-        formData.append('csv_file', csvFile);
-        formData.append('total_marks', totalMarks);
-        return apiCall('/import-google-forms', {
-            method: 'POST',
-            body: formData
-        });
-    }
+    importGoogleForms: (csvFile, totalMarks) =>
+        isDemoMode()
+            ? Promise.resolve({ success: true, data: { imported: 5 } }) // Mock
+            : apiCall('/import-google-forms', {
+                method: 'POST',
+                body: (() => { const fd = new FormData(); fd.append('csv_file', csvFile); fd.append('total_marks', totalMarks); return fd; })()
+            })
 };
 
 // ==================== STORAGE HELPERS ====================
