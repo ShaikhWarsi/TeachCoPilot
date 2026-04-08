@@ -1,5 +1,9 @@
 """
+<<<<<<< HEAD
 Authentication Module - Simplified DEMO mode for hackathon
+=======
+Authentication Module - JWT-based auth with user management
+>>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
 """
 
 import os
@@ -11,6 +15,7 @@ from functools import wraps
 from flask import request, jsonify, current_app
 from classroom_models import store
 
+<<<<<<< HEAD
 # DEMO MODE: Use fixed teacher ID for hackathon/demo
 # In production, replace with proper authentication
 DEMO_USER_ID = "teacher_001"
@@ -20,6 +25,8 @@ DEMO_USER = {
     'name': 'Demo Teacher'
 }
 
+=======
+>>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
 # Simple in-memory user store (migrate to database in production)
 class AuthStore:
     def __init__(self):
@@ -128,6 +135,7 @@ auth_store = AuthStore()
 
 
 def login_required(f):
+<<<<<<< HEAD
     """Decorator to protect routes - DEMO MODE: auto-authenticates as demo teacher"""
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -157,6 +165,35 @@ def login_required(f):
         # 
         # request.current_user = user
         # return f(*args, **kwargs)
+=======
+    """Decorator to protect routes"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # Check for token in header
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(' ')[1]  # Bearer <token>
+            except IndexError:
+                pass
+        
+        # Check for token in session
+        if not token and 'token' in request.session:
+            token = request.session['token']
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Authentication required'}), 401
+        
+        user = auth_store.verify_token(token)
+        if not user:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+        
+        # Add user to request context
+        request.current_user = user
+        return f(*args, **kwargs)
+>>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
     
     return decorated
 
