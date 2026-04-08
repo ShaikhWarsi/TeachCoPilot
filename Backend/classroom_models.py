@@ -6,6 +6,7 @@ In-memory storage for classrooms, submissions, and analytics
 import uuid
 import json
 import os
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
@@ -25,8 +26,10 @@ class ClassroomStore:
         return cls._instance
     
     def _get_storage_path(self):
-        """Get path for persistent storage"""
-        return os.path.join(os.path.dirname(__file__), 'classroom_data.json')
+        """Get path for persistent storage - platform independent"""
+        base_tmp = os.path.join(tempfile.gettempdir(), 'teco')
+        os.makedirs(base_tmp, exist_ok=True)
+        return os.path.join(base_tmp, 'classroom_data.json')
     
     def _load_from_disk(self):
         """Load data from JSON file if exists"""

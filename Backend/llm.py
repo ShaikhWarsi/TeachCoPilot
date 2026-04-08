@@ -10,34 +10,46 @@ from typing import Dict, List, Any
 from groq import Groq
 
 
+def validate_groq_key():
+    """Validate GROQ_API_KEY is set at startup"""
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError(
+            "❌ GROQ_API_KEY environment variable is not set!\n"
+            "Please set it before running the application:\n"
+            "  Windows: set GROQ_API_KEY=your_key_here\n"
+            "  Linux/Mac: export GROQ_API_KEY=your_key_here\n"
+            "Get your API key from: https://console.groq.com/keys"
+        )
+    return api_key
+
+
 class AssignmentEvaluator:
     """Evaluates student assignments using Groq LLM"""
     
     def __init__(self):
         """Initialize Groq client"""
-        api_key = os.getenv('GROQ_API_KEY')
-        if not api_key:
-            raise ValueError("GROQ_API_KEY not found in environment variables")
-        
+        api_key = validate_groq_key()
         self.client = Groq(api_key=api_key)
         # Using llama3-8b-8192 for good balance of speed and quality
         # Alternative: mixtral-8x7b-32768, gemma-7b-it
         self.model = "llama3-8b-8192"
     
-    def evaluate(self, student_text: str, assignment_context: str = "") -> Dict[str, Any]:
+    def evaluate(self, student_text: str, assignment_context: str = "", questions_text: str = None) -> Dict[str, Any]:
         """
         Evaluate student assignment and return structured feedback
         
         Args:
             student_text: Extracted text from student submission
             assignment_context: Optional context about the assignment
+            questions_text: Optional extracted text from questions/answer key PDF
             
         Returns:
             Dictionary with score, feedback, mistakes, and suggestions
         """
         try:
             # Build the evaluation prompt
-            prompt = self._build_evaluation_prompt(student_text, assignment_context)
+            prompt = self._build_evaluation_prompt(student_text, assignment_context, questions_text)
             
             # Call Groq API
             print("Sending evaluation request to Groq...")
@@ -72,20 +84,38 @@ class AssignmentEvaluator:
             # Return fallback evaluation on error
             return self._fallback_evaluation(str(e))
     
-    def _build_evaluation_prompt(self, student_text: str, assignment_context: str = "") -> str:
+    def _build_evaluation_prompt(self, student_text: str, assignment_context: str = "", questions_text: str = None) -> str:
         """Build the structured evaluation prompt"""
         
         context_section = f"\nAssignment Context: {assignment_context}" if assignment_context else ""
         
+        # Build questions/answer key section if provided
+        questions_section = ""
+        if questions_text:
+            questions_section = f"""
+REFERENCE MATERIAL (Questions, Answer Key, or Rubric):
+```
+{questions_text[:3000]}
+```
+
+IMPORTANT: Use the reference material above to:
+- Check if student's answers match expected answers
+- Identify which questions were answered correctly/incorrectly
+- Compare student's work against provided solutions or rubric
+- Score based on accuracy against the reference material
+"""
+        
         prompt = f"""Evaluate the following student submission:{context_section}
+
+{questions_section}
 
 STUDENT SUBMISSION:
 ```
-{student_text[:4000]}  # Limit text length to avoid token limits
+{student_text[:4000]}
 ```
 
 Evaluate based on:
-1. CORRECTNESS - Accuracy of facts, calculations, and reasoning
+1. CORRECTNESS - Accuracy of facts, calculations, and reasoning{(' (compare against reference material above)' if questions_text else '')}
 2. COMPLETENESS - Whether all parts of the question were addressed
 3. CLARITY - Quality of explanation and presentation
 
@@ -105,7 +135,7 @@ Respond ONLY with a JSON object in this exact format:
 
 Guidelines:
 - Score: 90-100 = Excellent, 80-89 = Good, 70-79 = Satisfactory, 60-69 = Needs Improvement, <60 = Poor
-- Feedback: Be encouraging but honest. Mention specific strengths and areas for improvement.
+- Feedback: Be encouraging but honest. Mention specific strengths and areas for improvement.{(' Reference specific questions from the provided material.' if questions_text else '')}
 - Mistakes: List 2-4 specific errors or misconceptions found. Be constructive.
 - Suggestions: Provide 2-3 actionable steps the student can take to improve.
 
@@ -289,7 +319,7 @@ Write in second person, addressing the teacher. Be encouraging and actionable.""
 
 
 # Convenience function
-def evaluate_assignment(student_text: str, assignment_context: str = "") -> Dict[str, Any]:
+def evaluate_assignment(student_text: str, assignment_context: str = "", questions_text: str = None) -> Dict[str, Any]:
     """Main entry point for assignment evaluation"""
     evaluator = AssignmentEvaluator()
-    return evaluator.evaluate(student_text, assignment_context)
+    return evaluator.evaluate(student_text, assignment_context, questions_text)

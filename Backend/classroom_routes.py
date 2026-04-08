@@ -1,25 +1,23 @@
-"""
-Classroom Routes - API endpoints for classroom workflow
+﻿"""
+Classroom Routes - API endpoints for classroom workflow (Demo Mode 2.0)
+Using mock OCR and LLM for demo purposes
 """
 
 import os
 import uuid
 import pandas as pd
-import requests
 from datetime import datetime
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from werkzeug.utils import secure_filename
 
 from classroom_models import Classroom, Submission, store
-from ocr import extract_text, OCRExtractor
-from llm import evaluate_assignment, AssignmentEvaluator
+# Import mock demo mode instead of real OCR and LLM
+from demo_mode import extract_text, evaluate_assignment, AssignmentEvaluator, MockOCRExtractor
 from analytics_engine import generate_classroom_analytics
 from auth import auth_store, login_required, get_current_user
 
-# External evaluation API
-EVAL_API_URL = "https://rachit-tw-teco.hf.space/evaluate"
-
-classroom_bp = Blueprint('classroom', __name__)
+# Blueprint definition
+classroom_bp = Blueprint('classroom', __name)
 
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'png', 'jpg', 'jpeg'}
 
@@ -65,7 +63,7 @@ def create_classroom():
             return jsonify({'success': False, 'error': 'No data provided'}), 400
         
         name = data.get('name', '').strip()
-        subject = data.get('subject', '').strip()
+        subject = data.get('subject', 'Python').strip()  # Default to Python
         assignment_title = data.get('assignment_title', '').strip()
         
         if not name or not subject or not assignment_title:
@@ -157,7 +155,8 @@ def delete_classroom(classroom_id):
 @login_required
 def batch_upload(classroom_id):
     """
-    Batch upload and evaluate multiple student assignments
+    Batch upload and evaluate multiple student assignments (Demo Mode)
+    Optimized for 4 PDFs
     
     POST /classrooms/{id}/upload
     Content-Type: multipart/form-data
@@ -165,7 +164,11 @@ def batch_upload(classroom_id):
     Form Fields:
         - files[]: Multiple files (required)
         - naming_pattern: (optional) How to extract student names from filenames
+        - questions_file: (optional) PDF containing questions/answer key for evaluation reference
     """
+    import time
+    start_time = time.time()
+    
     try:
         user = get_current_user()
         classroom = store.get_classroom(classroom_id, user_id=user['id'])
@@ -202,19 +205,53 @@ def batch_upload(classroom_id):
                 'message': f'Some files have unsupported formats: {", ".join(invalid_files[:3])}'
             }), 400
         
-        # Process each file
+        # Handle optional questions/answer key file
+        questions_text = None
+        questions_file = request.files.get('questions_file')
+        questions_path = None
+        
+        if questions_file and questions_file.filename:
+            questions_filename = secure_filename(questions_file.filename)
+            questions_ext = questions_filename.rsplit('.', 1)[1].lower()
+            questions_unique = f"questions_{uuid.uuid4().hex}.{questions_ext}"
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            questions_path = os.path.join(upload_folder, questions_unique)
+            questions_file.save(questions_path)
+            print(f"Questions file saved: {questions_path}")
+            
+            # Extract questions text for use in all evaluations
+            try:
+                print("Extracting questions text (Demo Mode)...")
+                questions_text = extract_text(questions_path)
+                print(f"Questions extracted (length: {len(questions_text)})")
+            except Exception as e:
+                print(f"Failed to extract questions: {e}")
+        
+        # Process each file with progress tracking
         results = []
         failed_files = []
+        progress_updates = []
         
-        for file in files:
+        for idx, file in enumerate(files):
+            file_start_time = time.time()
             try:
+                # Log progress
+                progress_msg = f"Processing file {idx + 1}/{len(files)}: {file.filename}"
+                print(progress_msg)
+                progress_updates.append({
+                    'file': file.filename,
+                    'status': 'processing',
+                    'index': idx + 1,
+                    'total': len(files)
+                })
+                
                 # Generate unique filename
                 original_filename = secure_filename(file.filename)
                 file_ext = original_filename.rsplit('.', 1)[1].lower()
                 unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
                 
                 # Save file temporarily
-                upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+                upload_folder = current_app.config['UPLOAD_FOLDER']
                 file_path = os.path.join(upload_folder, unique_filename)
                 file.save(file_path)
                 
@@ -222,7 +259,7 @@ def batch_upload(classroom_id):
                     # Extract student name from filename (before extension)
                     student_name = original_filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').title()
                     
-                    # Step 1: Extract text
+                    # Step 1: Extract text with mock OCR
                     extracted_text = extract_text(file_path)
                     
                     if not extracted_text or not extracted_text.strip():
@@ -232,9 +269,9 @@ def batch_upload(classroom_id):
                         })
                         continue
                     
-                    # Step 2: Evaluate with LLM
+                    # Step 2: Evaluate with mock LLM (using questions text if provided)
                     context = f"Classroom: {classroom.name}, Subject: {classroom.subject}, Assignment: {classroom.assignment_title}"
-                    evaluation = evaluate_assignment(extracted_text, context)
+                    evaluation = evaluate_assignment(extracted_text, context, questions_text)
                     
                     # Create submission record (no extracted_text to save storage)
                     submission = Submission(
@@ -251,6 +288,8 @@ def batch_upload(classroom_id):
                     # Save to store
                     store.add_submission(classroom_id, submission)
                     
+                    file_duration = round(time.time() - file_start_time, 2)
+                    
                     results.append({
                         'submission_id': submission.id,
                         'student_name': student_name,
@@ -259,38 +298,53 @@ def batch_upload(classroom_id):
                         'feedback': evaluation['feedback'],
                         'mistakes': evaluation['mistakes'],
                         'suggestions': evaluation['suggestions'],
-                        'status': 'success'
+                        'status': 'success',
+                        'processing_time': file_duration
                     })
                     
                 finally:
-                    # Clean up file
-                    OCRExtractor.cleanup_file(file_path)
+                    # Clean up file using mock cleanup
+                    MockOCRExtractor.cleanup_file(file_path)
                     
             except Exception as e:
                 print(f"Error processing file {file.filename}: {e}")
                 failed_files.append({
                     'filename': file.filename,
-                    'error': str(e)
+                    'error': str(e),
+                    'index': idx + 1
                 })
         
         # Generate analytics after all submissions
         analytics = generate_classroom_analytics(classroom_id)
+        
+        total_duration = round(time.time() - start_time, 2)
+        
+        # Clean up questions file if it was uploaded
+        if questions_path:
+            MockOCRExtractor.cleanup_file(questions_path)
         
         return jsonify({
             'success': True,
             'data': {
                 'processed': len(results),
                 'failed': len(failed_files),
+                'total': len(files),
+                'processing_time': total_duration,
+                'avg_time_per_file': round(total_duration / len(files), 2) if files else 0,
+                'questions_provided': questions_text is not None,
+                'questions_text_length': len(questions_text) if questions_text else 0,
                 'results': results,
                 'failed_files': failed_files,
+                'progress': progress_updates,
                 'analytics': {
                     'overview': analytics['overview'],
                     'score_distribution': analytics['score_distribution'],
                     'pass_fail_ratio': analytics['pass_fail_ratio'],
                     'common_mistakes': analytics['common_mistakes'][:5]  # Top 5 only
-                }
+                },
+                'demo_mode': True
             },
-            'message': f'Successfully processed {len(results)} of {len(files)} files'
+            'message': f'Successfully processed {len(results)} of {len(files)} files in {total_duration}s (Demo Mode - Optimized for 4 PDFs)'
         })
         
     except Exception as e:
@@ -458,48 +512,14 @@ def parse_google_forms_csv(csv_path):
     return students
 
 
-def evaluate_with_api(question, answer, max_score=100):
-    """
-    Evaluate a single question-answer pair using the external API.
-    """
-    try:
-        payload = {
-            "question": question,
-            "answer": answer,
-            "max_score": max_score
-        }
-        response = requests.post(EVAL_API_URL, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'score': data.get('score', 0),
-                'feedback': data.get('feedback', 'Evaluated successfully'),
-                'mistakes': data.get('mistakes', []),
-                'suggestions': data.get('suggestions', [])
-            }
-        else:
-            return {
-                'score': 0,
-                'feedback': f'API Error: {response.status_code}',
-                'mistakes': ['Could not evaluate - API error'],
-                'suggestions': ['Try again later']
-            }
-    except Exception as e:
-        return {
-            'score': 0,
-            'feedback': f'Evaluation failed: {str(e)}',
-            'mistakes': ['Connection error'],
-            'suggestions': ['Check internet connection']
-        }
 
 
 @classroom_bp.route('/classrooms/<classroom_id>/import-google-forms', methods=['POST'])
 @login_required
 def import_google_forms_classroom(classroom_id):
     """
-    Import student responses from Google Forms CSV into a classroom.
-    Evaluates each response using the external API.
+    Import student responses from Google Forms CSV into a classroom (Demo Mode).
+    Evaluates each response using the mock API.
     
     POST /classrooms/{id}/import-google-forms
     Content-Type: multipart/form-data
@@ -544,7 +564,7 @@ def import_google_forms_classroom(classroom_id):
         
         # Save CSV temporarily
         filename = f"google_forms_{uuid.uuid4().hex}.csv"
-        upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+        upload_folder = current_app.config['UPLOAD_FOLDER']
         os.makedirs(upload_folder, exist_ok=True)
         file_path = os.path.join(upload_folder, filename)
         csv_file.save(file_path)
@@ -568,14 +588,17 @@ def import_google_forms_classroom(classroom_id):
             
             for student in students:
                 try:
-                    # Evaluate each question-answer pair
+                    # Evaluate each question-answer pair using mock LLM
                     total_score = 0
                     all_feedback = []
                     all_mistakes = []
                     all_suggestions = []
                     
                     for question, answer in student['responses'].items():
-                        evaluation = evaluate_with_api(question, answer, max_score)
+                        # Call mock LLM evaluation
+                        context = f"Question: {question}"
+                        evaluation = evaluate_assignment(answer, context)
+                        
                         total_score += evaluation['score']
                         all_feedback.append(f"Q: {question}\n{evaluation['feedback']}")
                         all_mistakes.extend(evaluation['mistakes'])
@@ -625,9 +648,10 @@ def import_google_forms_classroom(classroom_id):
                         'score_distribution': analytics['score_distribution'],
                         'pass_fail_ratio': analytics['pass_fail_ratio'],
                         'common_mistakes': analytics['common_mistakes'][:5]
-                    }
+                    },
+                    'demo_mode': True
                 },
-                'message': f'Successfully imported and evaluated {len(results)} students from Google Forms'
+                'message': f'Successfully imported and evaluated {len(results)} students from Google Forms (Demo Mode)'
             })
             
         finally:

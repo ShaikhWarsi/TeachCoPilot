@@ -5,6 +5,7 @@ Uses pdf2image, pytesseract, and python-docx (NO paid APIs)
 
 import os
 import io
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,51 @@ import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
 from docx import Document
+
+
+def _validate_tesseract():
+    """Validate Tesseract OCR is installed and accessible"""
+    try:
+        version = pytesseract.get_tesseract_version()
+        return True, f"Tesseract v{version} found"
+    except Exception as e:
+        return False, (
+            "Tesseract OCR is not installed or not in PATH.\n"
+            "Windows users: Install from https://github.com/UB-Mannheim/tesseract/wiki\n"
+            "Then add to PATH or set pytesseract.pytesseract.tesseract_cmd manually\n"
+            f"Error: {str(e)}"
+        )
+
+
+def _validate_poppler():
+    """Validate poppler is installed (required for PDF processing)"""
+    if os.name != 'nt':
+        return True, "Poppler check skipped (non-Windows)"
+    
+    poppler_paths = [
+        r'C:\Program Files\poppler\Library\bin',
+        r'C:\Program Files (x86)\poppler\Library\bin',
+        r'C:\poppler\Library\bin',
+    ]
+    for path in poppler_paths:
+        if os.path.exists(path):
+            return True, f"Poppler found at {path}"
+    
+    return False, (
+        "Poppler not found. PDF processing will fail.\n"
+        "Windows users: Download from https://github.com/oschwartz10612/poppler-windows/releases/\n"
+        "Extract to C:\\poppler and add C:\\poppler\\Library\\bin to PATH"
+    )
+
+
+# Run validation on module load
+tesseract_ok, tesseract_msg = _validate_tesseract()
+poppler_ok, poppler_msg = _validate_poppler()
+
+if not tesseract_ok:
+    print(f"⚠️ OCR Warning: {tesseract_msg}", file=sys.stderr)
+if not poppler_ok:
+    print(f"⚠️ OCR Warning: {poppler_msg}", file=sys.stderr)
 
 # Configure pytesseract path for Windows
 if os.name == 'nt':
@@ -33,18 +79,27 @@ class OCRExtractor:
     """Handles text extraction from various file formats"""
     
     @staticmethod
-    def extract_text(file_path: str) -> str:
+    def extract_text(file_path: str, max_file_size_mb: int = 50) -> str:
         """
         Extract text from file based on its extension
         
         Args:
             file_path: Path to the file
+            max_file_size_mb: Maximum file size in MB (default 50)
             
         Returns:
             Extracted text as string
         """
         file_path = Path(file_path)
         extension = file_path.suffix.lower()
+        
+        # Check file size before processing
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > max_file_size_mb:
+            raise ValueError(
+                f"File too large: {file_size_mb:.1f}MB exceeds maximum of {max_file_size_mb}MB. "
+                "Please compress or split the file."
+            )
         
         if extension == '.pdf':
             return OCRExtractor._extract_from_pdf(file_path)

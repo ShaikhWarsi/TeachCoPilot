@@ -1,6 +1,6 @@
-"""
-Flask Routes - API endpoints for Teacher Copilot
-Merged with features from existing Edu-Evaluator backend
+﻿"""
+Flask Routes - API endpoints for Teacher Copilot (Demo Mode 2.0)
+Using mock OCR and LLM for demo purposes
 """
 
 import os
@@ -14,8 +14,8 @@ from flask_bcrypt import Bcrypt
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
 
-from ocr import extract_text, OCRExtractor
-from llm import evaluate_assignment, AssignmentEvaluator
+# Import mock demo mode instead of real OCR and LLM
+from demo_mode import extract_text, evaluate_assignment, AssignmentEvaluator
 
 # Blueprint definition
 api_bp = Blueprint('api', __name__)
@@ -58,7 +58,7 @@ def generate_file_hash(file_content):
 @api_bp.route('/evaluate', methods=['POST'])
 def evaluate():
     """
-    Evaluate a single assignment file
+    Evaluate a single assignment file (Demo Mode)
     
     POST /api/evaluate
     Content-Type: multipart/form-data
@@ -66,7 +66,8 @@ def evaluate():
     Form Fields:
         - file: The assignment file (PDF, DOCX, or image)
         - assignment_name: (optional) Name of the assignment
-        - subject: (optional) Subject area
+        - subject: (optional) Subject area (defaults to Python)
+        - questions_file: (optional) PDF containing questions/answer key
     
     Returns:
         JSON with score, feedback, mistakes, suggestions
@@ -98,17 +99,31 @@ def evaluate():
                 'message': f'Allowed formats: {", ".join(ALLOWED_EXTENSIONS)}'
             }), 400
         
-        # Get optional metadata
+        # Get optional metadata - default subject to Python
         assignment_name = request.form.get('assignment_name', 'Untitled Assignment')
-        subject = request.form.get('subject', 'General')
+        subject = request.form.get('subject', 'Python')  # Default to Python
+        
+        # Handle optional questions/answer key file
+        questions_text = None
+        questions_file = request.files.get('questions_file')
+        questions_path = None
+        
+        if questions_file and questions_file.filename:
+            questions_filename = secure_filename(questions_file.filename)
+            questions_ext = questions_filename.rsplit('.', 1)[1].lower()
+            questions_unique = f"questions_{uuid.uuid4().hex}.{questions_ext}"
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            questions_path = os.path.join(upload_folder, questions_unique)
+            questions_file.save(questions_path)
+            print(f"Questions file saved: {questions_path}")
         
         # Generate unique filename
         original_filename = secure_filename(file.filename)
         file_ext = original_filename.rsplit('.', 1)[1].lower()
         unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
         
-        # Save file temporarily
-        upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+        # Use config for upload folder
+        upload_folder = current_app.config['UPLOAD_FOLDER']
         file_path = os.path.join(upload_folder, unique_filename)
         file.save(file_path)
         
@@ -117,8 +132,14 @@ def evaluate():
         print(f"Assignment: {assignment_name}, Subject: {subject}")
         
         try:
-            # Step 1: Extract text using OCR
-            print("Starting text extraction...")
+            # Step 1: Extract questions text if provided
+            if questions_path:
+                print("Extracting questions from questions file...")
+                questions_text = extract_text(questions_path)
+                print(f"Questions extracted (length: {len(questions_text)})")
+            
+            # Step 2: Extract text using mock OCR
+            print("Starting text extraction (Demo Mode)...")
             extracted_text = extract_text(file_path)
             
             if not extracted_text or not extracted_text.strip():
@@ -130,10 +151,10 @@ def evaluate():
             
             print(f"Text extracted successfully (length: {len(extracted_text)})")
             
-            # Step 2: Evaluate with LLM
-            print("Starting LLM evaluation...")
+            # Step 3: Evaluate with mock LLM
+            print("Starting LLM evaluation (Demo Mode)...")
             context = f"Assignment: {assignment_name}, Subject: {subject}"
-            evaluation = evaluate_assignment(extracted_text, context)
+            evaluation = evaluate_assignment(extracted_text, context, questions_text)
             
             print("Evaluation completed successfully")
             
@@ -150,14 +171,20 @@ def evaluate():
                     'suggestions': evaluation['suggestions'],
                     'assignment_name': assignment_name,
                     'subject': subject,
-                    'extracted_text_length': len(extracted_text)
+                    'extracted_text_length': len(extracted_text),
+                    'questions_provided': questions_text is not None,
+                    'questions_text_length': len(questions_text) if questions_text else 0,
+                    'demo_mode': True
                 },
-                'message': 'Evaluation completed successfully'
+                'message': 'Evaluation completed successfully (Demo Mode)'
             })
             
         finally:
-            # Clean up uploaded file
-            OCRExtractor.cleanup_file(file_path)
+            # Clean up uploaded files
+            from demo_mode import MockOCRExtractor
+            MockOCRExtractor.cleanup_file(file_path)
+            if questions_path:
+                MockOCRExtractor.cleanup_file(questions_path)
             
     except ValueError as e:
         print(f"Validation error: {e}")
@@ -179,7 +206,7 @@ def evaluate():
 @api_bp.route('/batch-evaluate', methods=['POST'])
 def batch_evaluate():
     """
-    Evaluate multiple assignment files
+    Evaluate multiple assignment files (Demo Mode)
     
     POST /api/batch-evaluate
     Content-Type: multipart/form-data
@@ -223,9 +250,9 @@ def batch_evaluate():
         
         assignment_name = request.form.get('assignment_name', 'Batch Evaluation')
         
-        # Save files and extract text
+        # Use config for upload folder
         file_paths = []
-        upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+        upload_folder = current_app.config['UPLOAD_FOLDER']
         
         try:
             extracted_texts = []
@@ -239,7 +266,7 @@ def batch_evaluate():
                 file.save(file_path)
                 file_paths.append(file_path)
                 
-                # Extract text
+                # Extract text using mock OCR
                 text = extract_text(file_path)
                 if text and text.strip():
                     extracted_texts.append(text)
@@ -251,7 +278,7 @@ def batch_evaluate():
                     'message': 'Could not extract text from any of the uploaded files'
                 }), 422
             
-            # Batch evaluate
+            # Batch evaluate using mock LLM
             evaluator = AssignmentEvaluator()
             batch_result = evaluator.batch_evaluate(extracted_texts)
             
@@ -262,15 +289,17 @@ def batch_evaluate():
                     'total_evaluated': batch_result['total_evaluated'],
                     'common_mistakes': batch_result['common_mistakes'],
                     'summary': batch_result['summary'],
-                    'assignment_name': assignment_name
+                    'assignment_name': assignment_name,
+                    'demo_mode': True
                 },
-                'message': f'Successfully evaluated {batch_result["total_evaluated"]} assignments'
+                'message': f'Successfully evaluated {batch_result["total_evaluated"]} assignments (Demo Mode)'
             })
             
         finally:
             # Clean up all files
+            from demo_mode import MockOCRExtractor
             for file_path in file_paths:
-                OCRExtractor.cleanup_file(file_path)
+                MockOCRExtractor.cleanup_file(file_path)
                 
     except Exception as e:
         print(f"Batch evaluation error: {e}")
@@ -286,9 +315,9 @@ def health():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'service': 'Teacher Copilot API',
-        'version': '1.1.0',
-        'features': ['local_ocr', 'groq_llm', 'csv_reporting']
+        'service': 'Teacher Copilot API (Demo Mode 2.0)',
+        'version': '2.0.0',
+        'features': ['mock_ocr', 'mock_llm', 'csv_reporting', 'demo_mode']
     })
 
 

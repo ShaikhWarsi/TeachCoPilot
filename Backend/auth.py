@@ -1,21 +1,17 @@
 """
-<<<<<<< HEAD
 Authentication Module - Simplified DEMO mode for hackathon
-=======
-Authentication Module - JWT-based auth with user management
->>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
 """
 
 import os
 import uuid
 import hashlib
 import secrets
+import tempfile
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify, current_app
 from classroom_models import store
 
-<<<<<<< HEAD
 # DEMO MODE: Use fixed teacher ID for hackathon/demo
 # In production, replace with proper authentication
 DEMO_USER_ID = "teacher_001"
@@ -25,8 +21,6 @@ DEMO_USER = {
     'name': 'Demo Teacher'
 }
 
-=======
->>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
 # Simple in-memory user store (migrate to database in production)
 class AuthStore:
     def __init__(self):
@@ -34,10 +28,17 @@ class AuthStore:
         self.tokens = {}  # token -> user_id mapping
         self._load_users()
     
+    def _get_storage_path(self):
+        """Get platform-appropriate storage path"""
+        base_tmp = os.path.join(tempfile.gettempdir(), 'teco')
+        os.makedirs(base_tmp, exist_ok=True)
+        return base_tmp
+    
     def _load_users(self):
         """Load users from file if exists"""
         import json
-        path = os.path.join(os.path.dirname(__file__), 'users.json')
+        base_tmp = self._get_storage_path()
+        path = os.path.join(base_tmp, 'users.json')
         if os.path.exists(path):
             try:
                 with open(path, 'r') as f:
@@ -49,7 +50,8 @@ class AuthStore:
     def _save_users(self):
         """Save users to file"""
         import json
-        path = os.path.join(os.path.dirname(__file__), 'users.json')
+        base_tmp = self._get_storage_path()
+        path = os.path.join(base_tmp, 'users.json')
         try:
             with open(path, 'w') as f:
                 json.dump({'users': self.users}, f, indent=2)
@@ -120,6 +122,9 @@ class AuthStore:
         
         if datetime.now() > expires:
             del self.tokens[token]
+            # DEMO fallback: if token is invalid but we are in demo mode, return demo user
+            if os.getenv('DEMO_MODE', 'false').lower() == 'true':
+                 return DEMO_USER
             return None
         
         return self.get_user_by_id(token_data['user_id'])
@@ -135,40 +140,14 @@ auth_store = AuthStore()
 
 
 def login_required(f):
-<<<<<<< HEAD
     """Decorator to protect routes - DEMO MODE: auto-authenticates as demo teacher"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        # DEMO MODE: Auto-authenticate as demo teacher
-        # Remove this in production and use proper token validation below
-        request.current_user = DEMO_USER
-        return f(*args, **kwargs)
-        
-        # PRODUCTION CODE (uncomment when ready):
-        # token = None
-        # if 'Authorization' in request.headers:
-        #     auth_header = request.headers['Authorization']
-        #     try:
-        #         token = auth_header.split(' ')[1]
-        #     except IndexError:
-        #         pass
-        # 
-        # if not token and 'token' in request.session:
-        #     token = request.session['token']
-        # 
-        # if not token:
-        #     return jsonify({'success': False, 'error': 'Authentication required'}), 401
-        # 
-        # user = auth_store.verify_token(token)
-        # if not user:
-        #     return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
-        # 
-        # request.current_user = user
-        # return f(*args, **kwargs)
-=======
-    """Decorator to protect routes"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
+        # DEMO MODE: Auto-authenticate as demo teacher for hackathon
+        if os.getenv('DEMO_MODE', 'false').lower() == 'true':
+            request.current_user = DEMO_USER
+            return f(*args, **kwargs)
+            
         token = None
         
         # Check for token in header
@@ -180,9 +159,12 @@ def login_required(f):
                 pass
         
         # Check for token in session
-        if not token and 'token' in request.session:
-            token = request.session['token']
+        if not token and 'token' in request.get_json(silent=True, default={}).get('token'):
+             token = request.get_json().get('token')
         
+        if not token and 'token' in request.args:
+             token = request.args.get('token')
+
         if not token:
             return jsonify({'success': False, 'error': 'Authentication required'}), 401
         
@@ -193,11 +175,19 @@ def login_required(f):
         # Add user to request context
         request.current_user = user
         return f(*args, **kwargs)
->>>>>>> 128aa999ba0cccd6f5a1149e9a6168253c9ba923
     
     return decorated
 
 
 def get_current_user() -> dict:
     """Get current authenticated user"""
-    return getattr(request, 'current_user', None)
+    # Prefer request context
+    user = getattr(request, 'current_user', None)
+    if user:
+        return user
+    
+    # Fallback to demo user if enabled
+    if os.getenv('DEMO_MODE', 'false').lower() == 'true':
+        return DEMO_USER
+        
+    return None
