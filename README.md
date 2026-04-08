@@ -7,7 +7,7 @@ A full-stack AI-powered assignment evaluation system for teachers. Upload studen
 - **Local OCR Processing** - No paid OCR APIs. Uses pdf2image, pytesseract, and python-docx
 - **AI Evaluation** - Powered by Groq LLM (llama3-8b) - replaces paid Google Vision
 - **Multiple File Formats** - PDF, DOCX, PNG, JPG
-- **Brutalist Modern UI** - Based on MSTC-VITB design system
+- **Brutalist Modern UI** - Based on Comical User Friendly UI design system
 - **Real-time Feedback** - Score, mistakes, and suggestions
 - **Classroom Workflow** - Manage classes, batch upload, class analytics
 - **Batch Evaluation** - Evaluate multiple assignments (up to 30 at once)
